@@ -2,6 +2,14 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AlertController, ToastController, IonicModule  } from '@ionic/angular';
 import { Geolocation, PermissionStatus } from '@capacitor/geolocation';
+import { registerPlugin } from '@capacitor/core';
+
+interface MockCheckerPlugin {
+  isMockAppInstalled(): Promise<{ isMockAppDetected: boolean }>;
+}
+
+const MockChecker = registerPlugin<MockCheckerPlugin>('MockChecker'); //detectar mocks de ubicacion falsa
+
 
 import {
   FormBuilder,
@@ -66,6 +74,17 @@ export class HomePage implements OnInit {
       const nombre = this.form.controls['nombre'].value;
 
       try {
+        // Verificar si hay apps de simulación instaladas
+      const result = await MockChecker.isMockAppInstalled();
+      if (result.isMockAppDetected) {
+        const alert = await this.alertController.create({
+          header: 'Advertencia',
+          message: 'Se detectó una aplicación que podría estar simulando la ubicación.',
+          buttons: ['OK'],
+        });
+        await alert.present();
+        return;
+      }
         // Verificar permisos de geolocalización
         const permiso = await this.getPermisoGeolocalizacion();
         console.log('Permiso obtenido:', permiso);
