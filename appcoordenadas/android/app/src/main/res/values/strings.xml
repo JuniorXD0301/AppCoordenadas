@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">appcoordenadas</string>
+    <string name="title_activity_main">appcoordenadas</string>
+    <string name="package_name">ionic.appcoordenadas</string>
+    <string name="custom_url_scheme">ionic.appcoordenadas</string>
+</resources>
