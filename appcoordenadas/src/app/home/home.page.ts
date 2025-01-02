@@ -2,13 +2,6 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AlertController, ToastController, IonicModule  } from '@ionic/angular';
 import { Geolocation, PermissionStatus } from '@capacitor/geolocation';
-import { registerPlugin } from '@capacitor/core';
-
-interface MockCheckerPlugin {
-  isMockAppInstalled(): Promise<{ isMockAppDetected: boolean }>;
-}
-
-const MockChecker = registerPlugin<MockCheckerPlugin>('MockChecker'); //detectar mocks de ubicacion falsa
 
 
 import {
@@ -47,8 +40,6 @@ import { BrowserModule } from '@angular/platform-browser';
     IonText,
     ReactiveFormsModule,
     CommonModule,
-    IonicModule,
-    BrowserModule
   ],
 })
 export class HomePage implements OnInit {
@@ -74,20 +65,8 @@ export class HomePage implements OnInit {
       const nombre = this.form.controls['nombre'].value;
 
       try {
-        // Verificar si hay apps de simulación instaladas
-      const result = await MockChecker.isMockAppInstalled();
-      if (result.isMockAppDetected) {
-        const alert = await this.alertController.create({
-          header: 'Advertencia',
-          message: 'Se detectó una aplicación que podría estar simulando la ubicación.',
-          buttons: ['OK'],
-        });
-        await alert.present();
-        return;
-      }
         // Verificar permisos de geolocalización
         const permiso = await this.getPermisoGeolocalizacion();
-        console.log('Permiso obtenido:', permiso);
 
         if (permiso === 'denied') {
           const alert = await this.alertController.create({
@@ -102,16 +81,14 @@ export class HomePage implements OnInit {
 
         // Obtener coordenadas
         const coordenadas = await this.getCoordenadasActuales();
-        console.log('Coordenadas:', coordenadas);
 
         if (coordenadas.latitud && coordenadas.longitud) {
-          console.log('Entrando a crear alerta');
           const alert = await this.alertController.create({
             header: 'Saludo',
             message: `Hola ${nombre}, estas son tus coordenadas: Latitud: ${coordenadas.latitud}, Longitud: ${coordenadas.longitud}`,
             buttons: ['OK'],
           });
-          console.log('alerta', alert)
+          
           await alert.present();
         } else {
           throw new Error(
@@ -136,13 +113,12 @@ export class HomePage implements OnInit {
   async getPermisoGeolocalizacion(): Promise<string> {
     try {
       const permiso: PermissionStatus = await Geolocation.checkPermissions();
-      console.log('permiso', permiso);
+      
       if (permiso.location === 'denied') {
         const solicitud = await Geolocation.requestPermissions();
-        console.log('solicitud', solicitud);
         return solicitud.location;
       }
-      console.log(permiso.location);
+      
       return permiso.location;
     } catch (error) {
       console.error(
@@ -160,13 +136,12 @@ export class HomePage implements OnInit {
   }> {
     const tiempoDeEspera = 15000; // 15 segundos
 
-    console.log('tiempodeespera', tiempoDeEspera);
     const tiempoDeEsperaPromise = new Promise<void>((_, reject) => {
       setTimeout(() => {
         reject({ message: 'Tiempo de espera agotado' });
       }, tiempoDeEspera);
     });
-    console.log('tiempodeseperapromise', tiempoDeEsperaPromise);
+
     try {
       const coordenadas: any = await Promise.race([
         Geolocation.getCurrentPosition({
@@ -175,7 +150,7 @@ export class HomePage implements OnInit {
         }),
         tiempoDeEsperaPromise,
       ]);
-      console.log('coordenadas actuales', coordenadas);
+      
       return {
         latitud: coordenadas.coords.latitude,
         longitud: coordenadas.coords.longitude,
