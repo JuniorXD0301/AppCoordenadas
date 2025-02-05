@@ -1,8 +1,8 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { AlertController, ToastController, IonicModule  } from '@ionic/angular';
+import { AlertController, ToastController } from '@ionic/angular';
 import { Geolocation, PermissionStatus } from '@capacitor/geolocation';
-
+import { locationDetector } from 'location-detector/dist/esm';
 
 import {
   FormBuilder,
@@ -21,7 +21,9 @@ import {
   IonItem,
   IonText,
 } from '@ionic/angular/standalone';
-import { BrowserModule } from '@angular/platform-browser';
+import { HttpClient, HttpClientModule } from '@angular/common/http';
+import { environment } from 'src/environments/environment';
+import { LocationService } from 'src/services/location.service';
 
 @Component({
   selector: 'app-home',
@@ -40,6 +42,7 @@ import { BrowserModule } from '@angular/platform-browser';
     IonText,
     ReactiveFormsModule,
     CommonModule,
+    HttpClientModule,
   ],
 })
 export class HomePage implements OnInit {
@@ -47,7 +50,9 @@ export class HomePage implements OnInit {
   constructor(
     private fb: FormBuilder,
     private alertController: AlertController,
-    private snackbar: ToastController
+    private snackbar: ToastController,
+    private http: HttpClient,
+    private locationService: LocationService,
   ) {}
 
   ngOnInit(): void {
@@ -65,45 +70,25 @@ export class HomePage implements OnInit {
       const nombre = this.form.controls['nombre'].value;
 
       try {
-        // Verificar permisos de geolocalización
-        const permiso = await this.getPermisoGeolocalizacion();
+        const esUbicacionFalsa =
+          await this.locationService.detectarUbicacionFalsa();
 
-        if (permiso === 'denied') {
-          const alert = await this.alertController.create({
-            header: 'Permiso Requerido',
-            message:
-              'Es necesario otorgar permisos de ubicación para continuar.',
-            buttons: ['OK'],
-          });
-          await alert.present();
+        if (esUbicacionFalsa) {
+          this.mostrarAlerta(
+            'Advertencia',
+            'Se detectó una ubicación falsa. Acceso denegado.',
+          );
           return;
         }
 
-        // Obtener coordenadas
         const coordenadas = await this.getCoordenadasActuales();
-
-        if (coordenadas.latitud && coordenadas.longitud) {
-          const alert = await this.alertController.create({
-            header: 'Saludo',
-            message: `Hola ${nombre}, estas son tus coordenadas: Latitud: ${coordenadas.latitud}, Longitud: ${coordenadas.longitud}`,
-            buttons: ['OK'],
-          });
-          
-          await alert.present();
-        } else {
-          throw new Error(
-            coordenadas.mensaje || 'Error desconocido al obtener coordenadas.'
-          );
-        }
+        this.mostrarAlerta(
+          'Saludo',
+          `Hola ${nombre}, tus coordenadas son:<br>
+          📍 Latitud: ${coordenadas.latitud}, Longitud: ${coordenadas.longitud}`,
+        );
       } catch (error: any) {
-        console.error('Error en la función saludar:', error);
-        const alert = await this.alertController.create({
-          header: 'Error',
-          message:
-            'No se pudo obtener la ubicación. Por favor, inténtalo de nuevo.',
-          buttons: ['OK'],
-        });
-        await alert.present();
+        this.mostrarAlerta('Error', error.message);
       }
     } else {
       this.form.markAllAsTouched();
@@ -113,59 +98,76 @@ export class HomePage implements OnInit {
   async getPermisoGeolocalizacion(): Promise<string> {
     try {
       const permiso: PermissionStatus = await Geolocation.checkPermissions();
-      
+
       if (permiso.location === 'denied') {
         const solicitud = await Geolocation.requestPermissions();
         return solicitud.location;
       }
-      
+
       return permiso.location;
     } catch (error) {
       console.error(
         'Error al comprobar los permisos de geolocalización:',
-        error
+        error,
       );
       return 'denied';
     }
   }
 
   async getCoordenadasActuales(): Promise<{
-    latitud?: number;
-    longitud?: number;
-    mensaje?: string;
+    latitud: number;
+    longitud: number;
   }> {
-    const tiempoDeEspera = 15000; // 15 segundos
-
-    const tiempoDeEsperaPromise = new Promise<void>((_, reject) => {
-      setTimeout(() => {
-        reject({ message: 'Tiempo de espera agotado' });
-      }, tiempoDeEspera);
-    });
-
     try {
-      const coordenadas: any = await Promise.race([
-        Geolocation.getCurrentPosition({
-          enableHighAccuracy: true,
-          maximumAge: 0,
-        }),
-        tiempoDeEsperaPromise,
-      ]);
-      
-      return {
-        latitud: coordenadas.coords.latitude,
-        longitud: coordenadas.coords.longitude,
-      };
-    } catch (error: any) {
-      console.error('Error al obtener las coordenadas:', error);
-      // Mostrar un toast cuando ocurra un error
-      const toast = await this.snackbar.create({
-        message:
-          'No se ha podido capturar las coordenadas. Inténtelo nuevamente',
-        duration: 5000, // Duración del toast en milisegundos
-        position: 'top', // Posición del toast en la pantalla
+      const position = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: true,
       });
-      toast.present();
-      return { mensaje: error.message || 'Error desconocido' };
+
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+
+      // Verificar ubicación con Google Maps API
+      const esUbicacionValida = await this.validarUbicacionReal(lat, lng);
+
+      if (!esUbicacionValida) {
+        throw new Error('Ubicación falsa detectada.');
+      }
+
+      return { latitud: lat, longitud: lng };
+    } catch (error) {
+      throw new Error(error.message || 'Error obteniendo ubicación.');
     }
+  }
+
+  async validarUbicacionReal(lat: number, lng: number): Promise<boolean> {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=AIzaSyBxYn47F0x7C9rVp1tewqNh3AY04VXZN-g`;
+      const response: any = await this.http.get(url).toPromise();
+
+      if (!response || response.status !== 'OK') {
+        return false; // Ubicación sospechosa
+      }
+
+      return true; // Ubicación válida
+    } catch (error) {
+      console.error('Error validando ubicación con Google:', error);
+      return false; // Fallo en la validación
+    }
+  }
+
+  // Función para mostrar alertas
+  async mostrarAlerta(titulo: string, mensaje: string) {
+    const alert = await this.alertController.create({
+      header: titulo,
+      message: mensaje,
+      buttons: ['OK'],
+    });
+    await alert.present();
+  }
+
+  async test(msg: string) {
+    await locationDetector.testPluginMethod({ msg: msg }).then((res: any) => {
+      alert('Return value is ' + JSON.stringify(res.value));
+    });
   }
 }
